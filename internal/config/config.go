@@ -24,7 +24,7 @@ func Default() Config {
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 		// Defaults added: local Scytale test endpoint & basic auth token (base64 of user:pass)
-		ScytaleURL:  "http://localhost:6300/api/v2/device", // assumed http scheme for provided host:port
+		ScytaleURL:  "http://scytale:6300/api/v2/device", // assumed http scheme for provided host:port
 		ScytaleAuth: "dXNlcjpwYXNz",
 	}
 }
