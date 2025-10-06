@@ -8,6 +8,7 @@ package webhook
 import (
 	"context"
 	"log"
+	"net/http"
 	"time"
 
 	"github.com/xmidt-org/ancla"
@@ -36,9 +37,10 @@ func (c Config) toAncla() (ancla.Config, []string, []string, time.Duration) {
 		JWTParserType:     "simple",
 		DisablePartnerIDs: true,
 		BasicClientConfig: chrysom.BasicClientConfig{
-			Address: c.ArgusURL,
-			Bucket:  bucket,
-			Auth:    chrysom.Auth{Basic: c.AuthBasic},
+			Address:    c.ArgusURL,
+			Bucket:     bucket,
+			Auth:       chrysom.Auth{Basic: c.AuthBasic},
+			HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		},
 	}
 	return ac, events, devices, duration
