@@ -9,14 +9,42 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/xmidt-org/ancla"
-	"github.com/xmidt-org/argus/chrysom"
+	"github.com/xmidt-org/ancla/auth"
+	"github.com/xmidt-org/ancla/chrysom"
+	"github.com/xmidt-org/ancla/schema"
+	webhook "github.com/xmidt-org/webhook-schema"
 )
 
-// AnclaConfig maps our existing Config into ancla client pieces.
-func (c Config) toAncla() (ancla.Config, []string, []string, time.Duration) {
+// createBasicAuthDecorator creates a simple auth decorator that adds Basic authentication
+func createBasicAuthDecorator(authHeader string) auth.Decorator {
+	return auth.DecoratorFunc(func(ctx context.Context, req *http.Request) error {
+		if authHeader != "" {
+			// If the auth header doesn't start with "Basic ", add it
+			if !strings.HasPrefix(authHeader, "Basic ") {
+				authHeader = "Basic " + authHeader
+			}
+			req.Header.Set("Authorization", authHeader)
+		}
+		return nil
+	})
+}
+
+// RegisterAncla performs registration using ancla instead of raw Argus PUT.
+func (c Config) RegisterAncla(ctx context.Context) {
+	if !c.Enable {
+		log.Printf("webhook(ancla): disabled")
+		return
+	}
+	if c.ArgusURL == "" || c.CallbackURL == "" {
+		log.Printf("webhook(ancla): missing Argus URL or callback")
+		return
+	}
+
+	// Setup defaults
 	bucket := c.Bucket
 	if bucket == "" {
 		bucket = "hooks"
@@ -33,46 +61,72 @@ func (c Config) toAncla() (ancla.Config, []string, []string, time.Duration) {
 	if duration <= 0 {
 		duration = time.Duration(0xffff) * time.Hour
 	}
-	ac := ancla.Config{
-		JWTParserType:     "simple",
-		DisablePartnerIDs: true,
-		BasicClientConfig: chrysom.BasicClientConfig{
-			Address:    c.ArgusURL,
-			Bucket:     bucket,
-			Auth:       chrysom.Auth{Basic: c.AuthBasic},
-			HTTPClient: &http.Client{Timeout: 30 * time.Second},
-		},
-	}
-	return ac, events, devices, duration
-}
 
-// RegisterAncla performs registration using ancla instead of raw Argus PUT.
-func (c Config) RegisterAncla(ctx context.Context) {
-	if !c.Enable {
-		log.Printf("webhook(ancla): disabled")
-		return
-	}
-	if c.ArgusURL == "" || c.CallbackURL == "" {
-		log.Printf("webhook(ancla): missing Argus URL or callback")
-		return
-	}
-	acfg, events, devices, duration := c.toAncla()
 	retries := c.Retries
 	if retries <= 0 {
 		retries = 3
 	}
+
 	var attempt func(int)
 	attempt = func(remaining int) {
 		log.Printf("webhook(ancla): registering callback=%s remaining=%d", c.CallbackURL, remaining)
-		svc, err := ancla.NewService(acfg, nil)
+
+		// Create chrysom client options
+		clientOpts := []chrysom.ClientOption{
+			chrysom.StoreBaseURL(c.ArgusURL),
+			chrysom.Bucket(bucket),
+		}
+
+		// Add auth if provided
+		if c.AuthBasic != "" {
+			authDecorator := createBasicAuthDecorator(c.AuthBasic)
+			clientOpts = append(clientOpts, chrysom.Auth(authDecorator))
+		}
+
+		// Create the chrysom client
+		client, err := chrysom.NewBasicClient(clientOpts...)
 		if err != nil {
-			log.Printf("webhook(ancla): service init error: %v", err)
+			log.Printf("webhook(ancla): client init error: %v", err)
 			retryLater(remaining, attempt)
 			return
 		}
+
+		// Create the ancla service
+		svc := ancla.NewService(client)
+
+		// Build the webhook registration using the schema types
 		until := time.Now().Add(duration)
-		hook := ancla.InternalWebhook{Webhook: ancla.Webhook{Config: ancla.DeliveryConfig{URL: c.CallbackURL, ContentType: "application/json"}, Events: events, Matcher: ancla.MetadataMatcherConfig{DeviceID: devices}, Duration: duration, Until: until}}
-		if err := svc.Add(ctx, "", hook); err != nil {
+
+		// Create field regex for device matching
+		var matchers []webhook.FieldRegex
+		for _, devicePattern := range devices {
+			matchers = append(matchers, webhook.FieldRegex{
+				Regex: devicePattern,
+				Field: "device_id",
+			})
+		}
+
+		// Create the registration V2
+		registration := webhook.RegistrationV2{
+			CanonicalName: "blizzard-gateway-webhook",
+			Address:       "blizzard-gateway",
+			Webhooks: []webhook.Webhook{
+				{
+					ReceiverURLs: []string{c.CallbackURL},
+					Accept:       "application/json",
+				},
+			},
+			Matcher: matchers,
+			Expires: until,
+		}
+
+		// Create the manifest
+		manifest := &schema.ManifestV2{
+			Registration: registration,
+		}
+
+		// Register the webhook
+		if err := svc.Add(ctx, "", manifest); err != nil {
 			log.Printf("webhook(ancla): add error: %v", err)
 			retryLater(remaining, attempt)
 			return
