@@ -60,7 +60,7 @@ func main() {
 		os.Setenv("WEBHOOK_URL", "http://blizzardgw:8920/webhook/events")
 	}
 	if os.Getenv("WEBHOOK_EVENTS") == "" {
-		os.Setenv("WEBHOOK_EVENTS", ".*")
+		os.Setenv("WEBHOOK_EVENTS", ".*Blizzard.*")
 	}
 	if os.Getenv("WEBHOOK_DEVICE_MATCH") == "" {
 		os.Setenv("WEBHOOK_DEVICE_MATCH", ".*")

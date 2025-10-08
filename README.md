@@ -109,7 +109,7 @@ CMD ["-listen", ":8920"]
 | `WEBHOOK_ENABLE` | Enable webhook registration | `true` |
 | `ARGUS_URL` | Argus webhook service URL | `http://argus:6600` |
 | `ARGUS_BASIC_AUTH` | Basic auth for Argus (with `Basic` prefix) | `Basic dXNlcjpwYXNz` |
-| `ARGUS_BUCKET` | Argus bucket name | `hooks` |
+| `ARGUS_BUCKET` | Argus bucket name | `webhooks` |
 | `WEBHOOK_URL` | Callback URL for webhook events | `http://blizzardgw:8920/webhook/events` |
 | `WEBHOOK_EVENTS` | Event regex pattern | `.*` |
 | `WEBHOOK_DEVICE_MATCH` | Device regex pattern | `.*` |
