@@ -106,6 +106,14 @@ func (c Config) RegisterAncla(ctx context.Context) {
 			})
 		}
 
+		// Add event matchers
+		for _, eventPattern := range events {
+			matchers = append(matchers, webhook.FieldRegex{
+				Regex: eventPattern,
+				Field: "event",
+			})
+		}
+
 		// Create the registration V2
 		registration := webhook.RegistrationV2{
 			CanonicalName: "blizzard-gateway-webhook",
@@ -113,7 +121,7 @@ func (c Config) RegisterAncla(ctx context.Context) {
 			Webhooks: []webhook.Webhook{
 				{
 					ReceiverURLs: []string{c.CallbackURL},
-					Accept:       "application/json",
+					Accept:       "application/msgpack",
 				},
 			},
 			Matcher: matchers,

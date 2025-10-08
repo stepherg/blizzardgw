@@ -152,7 +152,9 @@ func (c *client) run(d rpc.Dispatcher, bus *events.Bus) {
 				if !ok {
 					return
 				}
-				c.writeJSON(rpc.Notification{JSONRPC: "2.0", Method: buildEventMethod(ev), Params: map[string]any{"device": ev.Device, "service": ev.Service, "event": ev.Name, "payload": string(ev.Payload)}})
+				// Send the inner JSON-RPC payload directly to the client
+				// The payload should already be a valid JSON-RPC message from the device
+				c.writeRaw(ev.Payload)
 			case <-done:
 				return
 			}
@@ -222,6 +224,26 @@ func (c *client) writeJSON(v interface{}) {
 	// Refresh per-message write deadline to avoid stale timeout from prior ping when queue backs up.
 	_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 	if err := c.conn.WriteJSON(v); err != nil {
+		// Provide more diagnostic context for timeouts vs other errors.
+		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
+			log.Printf("write timeout (deadline exceeded) err=%v", err)
+			return
+		}
+		// Unwrap if wrapped by websocket library
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			log.Printf("write deadline exceeded err=%v", err)
+			return
+		}
+		log.Printf("write error: %T %v", err, err)
+	}
+}
+
+func (c *client) writeRaw(data []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Refresh per-message write deadline
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		// Provide more diagnostic context for timeouts vs other errors.
 		if nerr, ok := err.(net.Error); ok && nerr.Timeout() {
 			log.Printf("write timeout (deadline exceeded) err=%v", err)

@@ -40,6 +40,34 @@ type WebhookData struct {
 	Devices  []string `json:"devices"`
 }
 
+// LegacyWebhookConfig represents the webhook configuration in Caduceus legacy format
+type LegacyWebhookConfig struct {
+	URL         string `json:"url"`
+	ContentType string `json:"content_type"`
+}
+
+// LegacyWebhookMatcher represents device ID matching in legacy format
+type LegacyWebhookMatcher struct {
+	DeviceID []string `json:"device_id"`
+}
+
+// LegacyWebhook represents the webhook structure that Caduceus understands
+type LegacyWebhook struct {
+	Config                LegacyWebhookConfig  `json:"config"`
+	Events                []string             `json:"events"`
+	Matcher               LegacyWebhookMatcher `json:"matcher"`
+	FailureURL            string               `json:"failure_url"`
+	Duration              int64                `json:"duration"`
+	Until                 time.Time            `json:"until"`
+	RegisteredFromAddress string               `json:"registered_from_address,omitempty"`
+}
+
+// LegacyWebhookData is the data structure that Caduceus expects
+type LegacyWebhookData struct {
+	PartnerIDs []string       `json:"PartnerIDs"`
+	Webhook    *LegacyWebhook `json:"Webhook"`
+}
+
 // Register stores/updates the webhook spec in Argus via PUT /store/<bucket>/<id>.
 func (c Config) Register() {
 	if !c.Enable {
@@ -67,17 +95,44 @@ func (c Config) Register() {
 		retries = 3
 	}
 
+	duration := c.Duration
+	if duration <= 0 {
+		duration = time.Duration(0xffff) * time.Hour // ~7.5 years
+	}
+	until := time.Now().Add(duration)
+
 	// Deterministic ID based on callback.
 	h := sha256.Sum256([]byte(strings.ToLower(c.CallbackURL)))
 	id := hex.EncodeToString(h[:])
 
-	item := Item{ID: id, Data: WebhookData{Callback: c.CallbackURL, Events: events, Devices: devices}}
+	// Create webhook in LEGACY format that Caduceus understands
+	legacyWebhook := LegacyWebhook{
+		Config: LegacyWebhookConfig{
+			URL:         c.CallbackURL,
+			ContentType: "application/msgpack",
+		},
+		Events: events,
+		Matcher: LegacyWebhookMatcher{
+			DeviceID: devices,
+		},
+		FailureURL:            "",
+		Duration:              int64(duration),
+		Until:                 until,
+		RegisteredFromAddress: "blizzard-gateway",
+	}
+
+	legacyData := LegacyWebhookData{
+		PartnerIDs: nil,
+		Webhook:    &legacyWebhook,
+	}
+
+	item := Item{ID: id, Data: legacyData}
 	if c.TTL > 0 {
 		item.TTL = c.TTL
 	}
 
 	body, _ := json.Marshal(item)
-	url := fmt.Sprintf("%s/store/%s/%s", strings.TrimRight(c.ArgusURL, "/"), bucket, id)
+	url := fmt.Sprintf("%s/api/v1/store/%s/%s", strings.TrimRight(c.ArgusURL, "/"), bucket, id)
 
 	var attempt func(int)
 	attempt = func(remaining int) {

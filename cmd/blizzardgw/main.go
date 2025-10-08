@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -54,7 +53,7 @@ func main() {
 		os.Setenv("ARGUS_BASIC_AUTH", "Basic dXNlcjpwYXNz")
 	}
 	if os.Getenv("ARGUS_BUCKET") == "" {
-		os.Setenv("ARGUS_BUCKET", "hooks")
+		os.Setenv("ARGUS_BUCKET", "webhooks")
 	}
 	if os.Getenv("WEBHOOK_URL") == "" {
 		// Gateway will listen on :8920; expose local endpoint path
@@ -86,10 +85,9 @@ func main() {
 		if dv := os.Getenv("WEBHOOK_DEVICE_MATCH"); dv != "" {
 			whCfg.DeviceMatchers = splitCSV(dv)
 		}
-		// Prefer ancla-based registration; fallback to raw if dependencies unresolved.
+		// Use legacy registration format that Caduceus understands
 		go func() {
-			// Attempt ancla registration (will log if fails to init); context TODO: add cancel on shutdown.
-			whCfg.RegisterAncla(context.Background())
+			whCfg.Register()
 		}()
 		// Register ingestion endpoint
 		http.HandleFunc("/webhook/events", webhook.Handler(bus))
